@@ -19,6 +19,9 @@
 
 #include "MyHwSTM32F1.h"
 
+#include <STM32Sleep.h>
+#include <RTClock.h>
+
 /*
 * Pinout STM32F103C8 dev board:
 * http://wiki.stm32duino.com/images/a/ae/Bluepillpinout.gif
@@ -92,10 +95,32 @@ void hwWriteConfig(const int addr, uint8_t value)
 	hwWriteConfigBlock(&value, reinterpret_cast<void *>(addr), 1);
 }
 
+RTClock hw_rt(RTCSEL_LSE);
 int8_t hwSleep(uint32_t ms)
 {
-	// TODO: Not supported!
-	(void)ms;
+	if (ms >= 1000)
+	{
+		systick_disable();
+		gpio_pin_mode gpioABack[16], gpioBBack[16], gpioCBack[16];
+		for (char i = 0; i < 16; ++i) {
+			gpioABack[i] = gpio_get_mode(GPIOA, i);
+			gpioBBack[i] = gpio_get_mode(GPIOB, i);
+			gpioCBack[i] = gpio_get_mode(GPIOC, i);
+		}
+		setGPIOModeToAllPins(GPIO_INPUT_ANALOG);
+		
+		sleepAndWakeUp(STM32_SLEEPMODE, &hw_rt, (uint32_t)(ms/1000UL));
+		systick_enable();
+		for (char i = 0; i < 16; ++i) {
+			gpio_set_mode(GPIOA, i, gpioABack[i]);
+			gpio_set_mode(GPIOB, i, gpioBBack[i]);
+			gpio_set_mode(GPIOC, i, gpioCBack[i]);
+		}
+		delay(10);
+		return MY_WAKE_UP_BY_TIMER;
+	}
+
+	// TODO: short sleep not supported!
 	return MY_SLEEP_NOT_POSSIBLE;
 }
 
