@@ -21,6 +21,9 @@
 
 #include <STM32Sleep.h>
 #include <RTClock.h>
+#include <boards.h>
+#include "boards_private.h"
+
 
 /*
 * Pinout STM32F103C8 dev board:
@@ -95,6 +98,42 @@ void hwWriteConfig(const int addr, uint8_t value)
 	hwWriteConfigBlock(&value, reinterpret_cast<void *>(addr), 1);
 }
 
+
+static void setup_clocks(void) {
+    // Turn on HSI. We'll switch to and run off of this while we're
+    // setting up the main PLL.
+    rcc_turn_on_clk(RCC_CLK_HSI);
+
+    // Turn off and reset the clock subsystems we'll be using, as well
+    // as the clock security subsystem (CSS). Note that resetting CFGR
+    // to its default value of 0 implies a switch to HSI for SYSCLK.
+    RCC_BASE->CFGR = 0x00000000;
+    rcc_disable_css();
+    rcc_turn_off_clk(RCC_CLK_PLL);
+    rcc_turn_off_clk(RCC_CLK_HSE);
+    wirish::priv::board_reset_pll();
+    // Clear clock readiness interrupt flags and turn off clock
+    // readiness interrupts.
+    RCC_BASE->CIR = 0x00000000;
+#if !USE_HSI_CLOCK
+    // Enable HSE, and wait until it's ready.
+    rcc_turn_on_clk(RCC_CLK_HSE);
+    while (!rcc_is_clk_ready(RCC_CLK_HSE))
+        ;
+#endif
+    // Configure AHBx, APBx, etc. prescalers and the main PLL.
+    wirish::priv::board_setup_clock_prescalers();
+    rcc_configure_pll(&wirish::priv::w_board_pll_cfg);
+
+    // Enable the PLL, and wait until it's ready.
+    rcc_turn_on_clk(RCC_CLK_PLL);
+    while(!rcc_is_clk_ready(RCC_CLK_PLL))
+        ;
+
+    // Finally, switch to the now-ready PLL as the main clock source.
+    rcc_switch_sysclk(RCC_CLKSRC_PLL);
+}
+
 #ifndef STM32_SLEEPMODE
 #define STM32_SLEEPMODE STOP
 #endif
@@ -113,6 +152,7 @@ int8_t hwSleep(uint32_t ms)
 		setGPIOModeToAllPins(GPIO_INPUT_ANALOG);
 		
 		sleepAndWakeUp(STM32_SLEEPMODE, &hw_rt, (uint32_t)(ms/1000UL));
+		setup_clocks();
 		systick_enable();
 		for (char i = 0; i < 16; ++i) {
 			gpio_set_mode(GPIOA, i, gpioABack[i]);
