@@ -95,6 +95,9 @@ void hwWriteConfig(const int addr, uint8_t value)
 	hwWriteConfigBlock(&value, reinterpret_cast<void *>(addr), 1);
 }
 
+#ifndef STM32_SLEEPMODE
+#define STM32_SLEEPMODE STOP
+#endif
 RTClock hw_rt(RTCSEL_LSE);
 int8_t hwSleep(uint32_t ms)
 {
